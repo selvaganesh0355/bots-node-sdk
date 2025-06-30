@@ -1,25 +1,26 @@
 # Webhooks
 
-The fundamental mechanism for sending and receiving messages with the Oracle Digital Assistant platform
-is through _asynchronous_ inbound and outbound messaging. The platform supports
-several **built-in** channels natively, and supports **webhook** for other messaging
-services and clients.
+Oracle Digital Assistant (ODA) uses an **asynchronous messaging model** for sending and receiving messages. This model is essential when you’re integrating with external messaging clients or services. While ODA includes native support for several built-in channels (like Facebook, Slack, etc.), you can use **webhooks** to integrate with any third-party messaging client that isn't supported out of the box.
 
-How you implement webhook as a channel differs greatly across clients. Generally,
-each client uses a unique message format, and has different mechanisms for sending and
-receiving messages. This package includes the necessary integration tools.
+Webhooks allow your messaging client to send and receive messages to and from your ODA instance over HTTP. This flexibility makes them ideal for custom integrations.
 
-<!--[nodoc]-->
-## QuickStart for Webhook
+## Quickstart
 
-[Webhook Starter Example](https://github.com/oracle/bots-node-sdk/blob/master/examples/webhook/starter) contains sample code and instructions.
-<!--[/nodoc]-->
+If you're just getting started, check out the [Webhook Starter Example](https://github.com/oracle/bots-node-sdk/blob/master/examples/webhook/starter). It includes ready-to-run code using Node.js and Express, and shows how to connect your client to Oracle Digital Assistant through webhooks.
+
+> 💡 Tip: You can use tools like [Beeceptor](https://beeceptor.com/) or [Pipedream RequestBin](https://pipedream.com/requestbin) to simulate your webhook endpoints during development and debugging. These tools are helpful for inspecting incoming requests without spinning up a full server.
+
+---
 
 ## Webhook Client
 
-`WebhookClient` is a flexible library for integrating with webhook channels that are
-configured in your Digital Assistant instance. Refer to [Webhooks](https://www.oracle.com/pls/topic/lookup?ctx=en/cloud/paas/digital-assistant&id=DACUA-GUID-96CCA06D-0432-4F20-8CDD-E60161F46680) in *Using Oracle Digital Assistant* and the [Webhook Starter Example](https://github.com/oracle/bots-node-sdk/blob/master/examples/webhook/starter) to further
-understand ways you can implement a webhook client.
+Oracle provides a `WebhookClient` through the `@oracle/bots-node-sdk` package. This middleware helps you connect your bot to any client over HTTP using webhooks.
+
+Here’s a basic Node.js Express example that shows how to:
+
+- Receive messages from the bot
+- Send messages to the bot
+- Handle errors
 
 ```javascript
 const express = require('express');
@@ -28,53 +29,111 @@ const OracleBot = require('@oracle/bots-node-sdk');
 const app = express();
 OracleBot.init(app);
 
-// implement webhook
+// Load webhook middleware
 const { WebhookClient, WebhookEvent } = OracleBot.Middleware;
 
+// Configure webhook channel details (from ODA UI)
 const channel = {
   url: process.env.BOT_WEBHOOK_URL,
-  secret: process.env.BOT_WEBHOOK_SECRET
+  secret: process.env.BOT_WEBHOOK_SECRET,
 };
-const webhook = new WebhookClient({ channel: channel });
-webhook.on(WebhookEvent.ERROR, console.error); // receive errors
 
-// receive bot messages
-app.post('/bot/message', webhook.receiver()); // receive bot messages
-webhook.on(WebhookEvent.MESSAGE_RECEIVED, message => {
-  // format and send to messaging client...
+// Initialize WebhookClient
+const webhook = new WebhookClient({ channel });
+
+// Error handling
+webhook.on(WebhookEvent.ERROR, console.error);
+
+// 1. Receive messages from bot
+app.post('/bot/message', webhook.receiver());
+webhook.on(WebhookEvent.MESSAGE_RECEIVED, (message) => {
+  // Process the message and respond to your messaging client
+  console.log('Bot sent message:', message);
 });
 
-// send messages to bot (example)
+// 2. Send messages to bot
 app.post('/user/message', (req, res) => {
-  let message = {/* ... */}; // format according to MessageModel
-  webhook.send(message)
-    .then(() => res.send('ok'), e => res.status(400).end());
+  const userMessage = {
+    userId: 'user123',
+    messagePayload: {
+      type: 'text',
+      text: 'Hello from user!',
+    },
+  };
+
+  webhook.send(userMessage)
+    .then(() => res.send('Message sent to bot'))
+    .catch((e) => res.status(400).send('Error sending message'));
 });
 ```
 
-> **TIP** `send()` supports an _optional_ `channel` as its
-second argument, thereby handling request-specific channel determination.
+### Additional Notes
 
-> **TIP** If you want verbose logging details, you can configure a logging utility of
-your choice and initialize the SDK accordingly:
+- `webhook.send()` also accepts a second optional `channel` argument for per-request channel selection.
+- For verbose logging, you can pass a logger during SDK init:
+
 ```javascript
 OracleBot.init(app, {
   logger: console,
 });
 ```
 
+---
 
 ## Webhook Utilities
 
-While `WebhookClient` is designed to support the majority of possible integration
-types, there may be cases where further control is needed. For this reason, and
-to support the full spectrum of integration designs, a series of utilities are
-exposed directly for interfacing with the platform's webhook channel.
+If you need more control over the integration — for example, to send messages without using middleware — the SDK provides low-level utilities.
+
+The `webhookUtil` module exposes functions to manually send messages to the bot:
 
 ```javascript
 const { webhookUtil } = require('@oracle/bots-node-sdk/util');
-// ...
-webhookUtil.messageToBotWithProperties(url, secret, userId, messsage, extras, (err, result) => {
 
-});
+const webhookUrl = 'https://your.bot.url';
+const secret = 'your-webhook-secret';
+const userId = 'user-abc';
+const message = {
+  type: 'text',
+  text: 'Hi from webhookUtil!',
+};
+
+const extras = {
+  profile: { firstName: 'Test' },
+  context: { variables: { myVar: '123' } },
+};
+
+webhookUtil.messageToBotWithProperties(
+  webhookUrl,
+  secret,
+  userId,
+  message,
+  extras,
+  (err, result) => {
+    if (err) {
+      console.error('Error:', err);
+    } else {
+      console.log('Bot responded:', result);
+    }
+  }
+);
 ```
+
+This method is especially useful when integrating from a service that doesn’t support Express middleware, or when you want to programmatically trigger bot interactions.
+
+---
+
+## Debugging Tips
+
+| Tool                  | Purpose                                         | Link                                                                 |
+|-----------------------|-------------------------------------------------|----------------------------------------------------------------------|
+| Beeceptor             | Inspect and test incoming/outgoing HTTP calls  | [https://beeceptor.com](https://beeceptor.com)                       |
+| Pipedream RequestBin  | Temporary endpoints for webhook development     | [https://pipedream.com/requestbin](https://pipedream.com/requestbin) |
+
+These tools let you verify that your ODA webhook integration is sending and receiving messages correctly — without deploying a backend server.
+
+---
+
+## References
+
+- [Using Webhooks with Oracle Digital Assistant](https://www.oracle.com/pls/topic/lookup?ctx=en/cloud/paas/digital-assistant&id=DACUA-GUID-96CCA06D-0432-4F20-8CDD-E60161F46680)
+- [Webhook Starter Code on GitHub](https://github.com/oracle/bots-node-sdk/blob/master/examples/webhook/starter)
